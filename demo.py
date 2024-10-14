@@ -23,28 +23,52 @@ class GetCropMatrix():
         self.align_corners = align_corners
 
     def _compose_rotate_and_scale(self, angle, scale, shift_xy, from_center, to_center):
+        """
+        构建旋转和缩放变换矩阵。
+        
+        该函数根据给定的旋转角度、缩放比例和位移，计算出一个变换矩阵，
+        该矩阵用于将图像从一个中心点缩放并旋转到另一个中心点。
+        
+        参数:
+        angle: float, 旋转角度，以弧度表示。
+        scale: float, 缩放比例。
+        shift_xy: tuple, 在x和y方向上的平移量。
+        from_center: tuple, 图像旋转和缩放前的中心点坐标。
+        to_center: tuple, 图像旋转和缩放后的中心点坐标。
+        
+        返回:
+        rot_scale_m: numpy数组, 3x3的变换矩阵，将原图的中心点变换到目标中心点。
+        """
+        # 计算给定角度的余弦和正弦值，用于旋转计算
         cosv = math.cos(angle)
         sinv = math.sin(angle)
 
+        # 解包中心点坐标
         fx, fy = from_center
         tx, ty = to_center
 
+        # 计算缩放后的余弦和正弦值
         acos = scale * cosv
         asin = scale * sinv
 
+        # 计算变换矩阵的第一行
         a0 = acos
         a1 = -asin
         a2 = tx - acos * fx + asin * fy + shift_xy[0]
 
+        # 计算变换矩阵的第二行
         b0 = asin
         b1 = acos
         b2 = ty - asin * fx - acos * fy + shift_xy[1]
 
+        # 构建变换矩阵
         rot_scale_m = np.array([
             [a0, a1, a2],
             [b0, b1, b2],
             [0.0, 0.0, 1.0]
         ], np.float32)
+        
+        # 返回变换矩阵
         return rot_scale_m
 
     def process(self, scale, center_w, center_h):
@@ -142,14 +166,39 @@ class Alignment:
             return ((points + 1) * torch.tensor([self.input_size, self.input_size]).to(points).view(1, 1, 2) - 1) / 2
 
     def preprocess(self, image, scale, center_w, center_h):
-        matrix = self.getCropMatrix.process(scale, center_w, center_h)
-        input_tensor = self.transformPerspective.process(image, matrix)
-        input_tensor = input_tensor[np.newaxis, :]
+        """
+        对输入图像进行预处理，包括裁剪、变换和归一化，以适应后续的模型处理。
 
+        参数:
+            image: 待处理的原始图像。
+            scale: 图像缩放比例，用于调整图像大小。
+            center_w: 图像宽度方向的中心点坐标。
+            center_h: 图像高度方向的中心点坐标。
+
+        返回:
+            input_tensor: 预处理后的图像张量，准备输入模型。
+            matrix: 裁剪矩阵，用于将原始图像裁剪到以(center_w, center_h)为中心，scale为缩放比例的区域。
+        """
+        # 计算裁剪矩阵，用于后续的图像裁剪
+        matrix = self.getCropMatrix.process(scale, center_w, center_h)
+        
+        # 应用裁剪矩阵，对原始图像进行裁剪和透视变换
+        input_tensor = self.transformPerspective.process(image, matrix)
+        
+        # 增加一个维度，使input_tensor变为[N, H, W, C]的形状，适应模型输入要求
+        input_tensor = input_tensor[np.newaxis, :]
+        
+        # 将numpy数组转换为PyTorch张量，并调整数据类型和维度顺序
         input_tensor = torch.from_numpy(input_tensor)
         input_tensor = input_tensor.float().permute(0, 3, 1, 2)
+        
+        # 对图像张量进行归一化，将其值缩放到-1.0到1.0的范围之间
         input_tensor = input_tensor / 255.0 * 2.0 - 1.0
+        
+        # 将张量移动到指定的设备（如GPU）上
         input_tensor = input_tensor.to(self.config.device_id)
+        
+        # 返回预处理后的图像张量和裁剪矩阵
         return input_tensor, matrix
 
     def postprocess(self, srcPoints, coeff):
@@ -223,7 +272,7 @@ def process(input_image):
         # image_draw = draw_pts(image_draw, shape)
         x1, x2 = shape[:, 0].min(), shape[:, 0].max()
         y1, y2 = shape[:, 1].min(), shape[:, 1].max()
-        scale = min(x2 - x1, y2 - y1) / 200 * 1.05
+        scale = min(x2 - x1, y2 - y1) / 200 * 1.05 # scale ratio
         center_w = (x2 + x1) / 2
         center_h = (y2 + y1) / 2
 
@@ -237,23 +286,24 @@ def process(input_image):
 if __name__ == '__main__':
     # face detector
     # could be downloaded in this repo: https://github.com/italojs/facial-landmarks-recognition/tree/master
-    predictor_path = '/path/to/shape_predictor_68_face_landmarks.dat'
+    predictor_path = '/home/facial-landmarks-recognition/shape_predictor_68_face_landmarks.dat'
     detector = dlib.get_frontal_face_detector()
     sp = dlib.shape_predictor(predictor_path)
 
     # facial landmark detector
     args = argparse.Namespace()
     args.config_name = 'alignment'
+    args.data_definition = '300W'
     # could be downloaded here: https://drive.google.com/file/d/1aOx0wYEZUfBndYy_8IYszLPG_D2fhxrT/view
-    model_path = '/path/to/WFLW_STARLoss_NME_4_02_FR_2_32_AUC_0_605.pkl'
-    device_ids = '0'
+    model_path = '/home/Data/300W_STARLoss_NME_2_87.pkl'
+    device_ids = '5'
     device_ids = list(map(int, device_ids.split(",")))
     alignment = Alignment(args, model_path, dl_framework="pytorch", device_ids=device_ids)
 
     # image:      input image
     # image_draw: draw the detected facial landmarks on image
     # results:    a list of detected facial landmarks
-    face_file_path = '/path/to/face/image/bald_guys.jpg'
+    face_file_path = '/home/Data/rawpic/s15/15_0101disgustingteeth/img001.jpg'
     image = cv2.imread(face_file_path)
     image_draw, results = process(image)
 
@@ -261,7 +311,7 @@ if __name__ == '__main__':
     img = cv2.cvtColor(image_draw, cv2.COLOR_BGR2RGB)
     plt.imshow(img)
     plt.show()
-
+    cv2.imwrite('output.png', img[:, :, ::-1])  # 将 RGB 转回 BGR 格式再保存
     # demo
     # interface = gr.Interface(fn=process, inputs="image", outputs="image")
     # interface.launch(share=True)
