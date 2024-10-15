@@ -72,14 +72,32 @@ class GetCropMatrix():
         return rot_scale_m
 
     def process(self, scale, center_w, center_h):
+        """
+        根据给定的缩放比例和中心点信息，计算图像处理的转换矩阵。
+
+        此函数主要用于计算将图像从一个中心点和缩放比例转换到另一个指定中心点和尺寸的过程。
+        它涉及到图像的旋转、缩放和平移处理，是图像变换中的核心部分。
+
+        参数:
+        scale (float): 当前图像的缩放比例。
+        center_w (float): 当前图像中心点的x坐标。
+        center_h (float): 当前图像中心点的y坐标。
+
+        返回:
+        matrix (ndarray): 转换矩阵，用于将图像从当前状态转换到目标状态。
+        """
+        # 根据align_corners属性决定目标图像的宽度和高度，这个参数主要用于控制插值过程中如何映射源图像的角点到目标图像的角点。
         if self.align_corners:
             to_w, to_h = self.image_size - 1, self.image_size - 1
         else:
             to_w, to_h = self.image_size, self.image_size
 
+        # 初始化旋转和缩放参数
         rot_mu = 0
         scale_mu = self.image_size / (scale * self.target_face_scale * 200.0)
         shift_xy_mu = (0, 0)
+
+        # 计算并返回转换矩阵
         matrix = self._compose_rotate_and_scale(
             rot_mu, scale_mu, shift_xy_mu,
             from_center=[center_w, center_h],
@@ -158,11 +176,27 @@ class Alignment:
             return (points * 2 + 1) / torch.tensor([self.input_size, self.input_size]).to(points).view(1, 1, 2) - 1
 
     def denorm_points(self, points, align_corners=False):
+        """
+        将点从标准化坐标转换为图像坐标系。
+        
+        标准化坐标将图像看作一个边长为2的正方形，左下角为 (-1, -1)，右上角为 (1, 1)。
+        这个函数将这样的坐标转换回图像的实际像素坐标。
+        
+        参数:
+        - points: Tensor，形状为 (N, M, 2)，其中 N 是点集数量，M 是每个点集中的点数量，每个点是一个 (x, y) 二元组。
+        - align_corners: Boolean，指定是否将输入坐标看作是像素的角点。如果为 True，输入坐标 (-1, -1) 对应图像左下角像素的角点，
+        (1, 1) 对应图像右上角像素的角点。如果为 False，输入坐标 (-1, -1) 对应图像左下角像素的中心，(1, 1) 对应图像右上角像素的中心。
+        
+        返回值:
+        - Tensor，形状同输入 points 相同，表示转换后的点的坐标。
+        """
         if align_corners:
             # [-1, +1] -> [0, SIZE-1]
+            # 当 align_corners 为 True 时，将点从标准化坐标转换为以像素角点为参考的图像坐标。
             return (points + 1) / 2 * torch.tensor([self.input_size - 1, self.input_size - 1]).to(points).view(1, 1, 2)
         else:
             # [-1, +1] -> [-0.5, SIZE-0.5]
+            # 当 align_corners 为 False 时，将点从标准化坐标转换为以像素中心为参考的图像坐标。
             return ((points + 1) * torch.tensor([self.input_size, self.input_size]).to(points).view(1, 1, 2) - 1) / 2
 
     def preprocess(self, image, scale, center_w, center_h):
@@ -218,34 +252,57 @@ class Alignment:
             with torch.no_grad():
                 output = self.alignment(input_tensor)
             landmarks = output[-1][0]
+            print(landmarks)
         else:
             assert False
 
         landmarks = self.denorm_points(landmarks)
         landmarks = landmarks.data.cpu().numpy()[0]
-        landmarks = self.postprocess(landmarks, np.linalg.inv(matrix))
+        landmarks = self.postprocess(landmarks, np.linalg.inv(matrix)) #逆矩阵变换坐标
 
         return landmarks
 
 
 def draw_pts(img, pts, mode="pts", shift=4, color=(0, 255, 0), radius=1, thickness=1, save_path=None, dif=0,
              scale=0.3, concat=False, ):
+    """
+    在图像上绘制点或索引。
+
+    :param img: 原始图像，可以是单通道或三通道图像。
+    :param pts: 点的列表，每个点是一个包含x和y坐标的列表。
+    :param mode: 绘制模式，可以是"index"（绘制点的索引）或"pts"（绘制点）。
+    :param shift: 缩放因子，用于将点的坐标缩放到图像的实际尺寸。
+    :param color: 绘制的颜色，对于RGB图像，默认为绿色。
+    :param radius: 绘制点时的半径。
+    :param thickness: 绘制文本或点的线宽。
+    :param save_path: 保存绘制后图像的路径，如果为None，则不保存。
+    :param dif: 点坐标的微调值。
+    :param scale: 绘制文本时的缩放比例。
+    :param concat: 是否将原始图像和绘制后的图像拼接在一起。
+    :return: 绘制点后的图像。
+    """
+    # 深拷贝图像，以避免修改原始图像
     img_draw = copy.deepcopy(img)
     for cnt, p in enumerate(pts):
         if mode == "index":
+            # 在图像上绘制点的索引
             cv2.putText(img_draw, str(cnt), (int(float(p[0] + dif)), int(float(p[1] + dif))), cv2.FONT_HERSHEY_SIMPLEX,
                         scale, color, thickness)
         elif mode == 'pts':
+            # 绘制点，首先进行颜色空间的转换以修复OpenCV的BUG
             if len(img_draw.shape) > 2:
-                # 此处来回切换是因为opencv的bug
                 img_draw = cv2.cvtColor(img_draw, cv2.COLOR_BGR2RGB)
                 img_draw = cv2.cvtColor(img_draw, cv2.COLOR_RGB2BGR)
+            # 在图像上绘制点
             cv2.circle(img_draw, (int(p[0] * (1 << shift)), int(p[1] * (1 << shift))), radius << shift, color, -1,
                        cv2.LINE_AA, shift=shift)
         else:
+            # 如果模式不是"index"或"pts"，抛出异常
             raise NotImplementedError
+    # 按需拼接原始图像和绘制后的图像
     if concat:
         img_draw = np.concatenate((img, img_draw), axis=1)
+    # 按需保存绘制后的图像
     if save_path is not None:
         cv2.imwrite(save_path, img_draw)
     return img_draw
@@ -296,7 +353,7 @@ if __name__ == '__main__':
     args.data_definition = '300W'
     # could be downloaded here: https://drive.google.com/file/d/1aOx0wYEZUfBndYy_8IYszLPG_D2fhxrT/view
     model_path = '/home/Data/300W_STARLoss_NME_2_87.pkl'
-    device_ids = '5'
+    device_ids = '7'
     device_ids = list(map(int, device_ids.split(",")))
     alignment = Alignment(args, model_path, dl_framework="pytorch", device_ids=device_ids)
 
