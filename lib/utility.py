@@ -250,27 +250,51 @@ def compute_loss(config, criterions, output, labels, heatmap=None, landmarks=Non
 
 
 def forward_backward(config, train_loader, net_module, net, net_ema, criterions, optimizer, epoch):
+    """
+    Performs the forward and backward pass for training the network.
+    
+    Args:
+        config: Configuration parameters, including training settings and logger.
+        train_loader: DataLoader for the training dataset.
+        net_module: The network module for the forward pass.
+        net: The main network, could be different from net_module if using DataParallel.
+        net_ema: The exponential moving average network, used for better generalization.
+        criterions: A list of loss functions.
+        optimizer: The optimizer for updating network parameters.
+        epoch: The current epoch number.
+    """
+    # Initialize AverageMeter to record training time
     train_model_time = AverageMeter()
+    # Initialize a list to record average losses
     ave_losses = [0] * config.label_num
 
+    # Move the network module to the specified device and set it to training mode
     net_module = net_module.float().to(config.device)
     net_module.train(True)
+    
+    # Get the size of the dataset and batch size
     dataset_size = len(train_loader.dataset)
     batch_size = config.batch_size  # train_loader.batch_size
     batch_num = max(dataset_size / max(batch_size, 1), 1)
+    
+    # Log training information if a logger is configured
     if config.logger is not None:
         config.logger.info(config.note)
         config.logger.info("Forward Backward process, Dataset size: %d, Batch size: %d" % (dataset_size, batch_size))
 
+    # Get the number of iterations
     iter_num = len(train_loader)
     epoch_start_time = time.time()
+    # Set the epoch for the sampler if net_module and net are different
     if net_module != net:
         train_loader.sampler.set_epoch(epoch)
+    
+    # Iterate through the dataset
     for iter, sample in enumerate(train_loader):
         iter_start_time = time.time()
-        # input
+        
+        # Prepare input data and labels
         input = sample["data"].float().to(config.device, non_blocking=True)
-        # labels
         labels = list()
         if isinstance(sample["label"], list):
             for label in sample["label"]:
@@ -281,25 +305,25 @@ def forward_backward(config, train_loader, net_module, net, net_ema, criterions,
             for k in range(label.shape[1]):
                 labels.append(label[:, k])
         labels = config.nstack * labels
-        # forward
+        
+        # Forward pass
         output, heatmaps, landmarks = net_module(input)
 
-        # loss
+        # Calculate losses
         losses, sum_loss = compute_loss(config, criterions, output, labels, heatmaps, landmarks)
         ave_losses = list(map(sum, zip(ave_losses, losses)))
 
-        # backward
+        # Backward pass and optimize
         optimizer.zero_grad()
         with torch.autograd.detect_anomaly():
             sum_loss.backward()
-        # torch.nn.utils.clip_grad_norm_(net_module.parameters(), 128.0)
         optimizer.step()
 
+        # Update the exponential moving average network
         if net_ema is not None:
             accumulate_net(net_ema, net, 0.5 ** (config.batch_size / 10000.0))
-            # accumulate_net(net_ema, net, 0.5 ** (8 / 10000.0))
 
-        # output
+        # Record and display training information
         train_model_time.update(time.time() - iter_start_time)
         last_time = convert_secs2time(train_model_time.avg * (iter_num - iter - 1), True)
         if iter % config.display_iteration == 0 or iter + 1 == len(train_loader):
@@ -311,9 +335,12 @@ def forward_backward(config, train_loader, net_module, net, net_ema, criterions,
                     ' -->>[{:03d}/{:03d}][{:03d}/{:03d}]'.format(epoch, config.max_epoch, iter, iter_num) \
                     + last_time + losses_str)
 
+    # Calculate total time and data loading time for the epoch
     epoch_end_time = time.time()
     epoch_total_time = epoch_end_time - epoch_start_time
     epoch_load_data_time = epoch_total_time - train_model_time.sum
+    
+    # Log time information for the epoch
     if config.logger is not None:
         config.logger.info("Train/Epoch: %d/%d, Average total time cost per iteration in this epoch: %.6f" % (
             epoch, config.max_epoch, epoch_total_time / iter_num))
@@ -322,6 +349,7 @@ def forward_backward(config, train_loader, net_module, net, net_ema, criterions,
         config.logger.info("Train/Epoch: %d/%d, Average training model time cost per iteration in this epoch: %.6f" % (
             epoch, config.max_epoch, train_model_time.avg))
 
+    # Calculate and log average losses for the epoch
     ave_losses = [loss / iter_num for loss in ave_losses]
     if config.logger is not None:
         config.logger.info("Train/Epoch: %d/%d, Average Loss in this epoch: %.6f" % (
@@ -333,17 +361,35 @@ def forward_backward(config, train_loader, net_module, net, net_ema, criterions,
 
 def accumulate_net(model1, model2, decay):
     """
-        operation: model1 = model1 * decay + model2 * (1 - decay)
+    使用指数加权平均方法合并两个模型的参数和缓冲区数据。
+    
+    此函数执行的操作为：model1 = model1 * decay + model2 * (1 - decay)，
+    其中decay是一个用于控制两个模型参数加权的因子。
+    
+    参数:
+    - model1: 第一个模型，其参数和缓冲区数据将被更新。
+    - model2: 第二个模型，其参数和缓冲区数据用于更新model1。
+    - decay: 衰减因子，用于控制两个模型参数的加权比例。
+    
+    返回值:
+    此函数没有返回值，但它会直接更新model1的参数和缓冲区数据。
     """
+    # 获取两个模型的参数字典
     par1 = dict(model1.named_parameters())
     par2 = dict(model2.named_parameters())
+    
+    # 更新model1的参数，使用model1和model2的参数进行指数加权平均
     for k in par1.keys():
         par1[k].data.mul_(decay).add_(
             other=par2[k].data.to(par1[k].data.device),
             alpha=1 - decay)
-
+    
+    # 获取两个模型的缓冲区字典
     par1 = dict(model1.named_buffers())
     par2 = dict(model2.named_buffers())
+    
+    # 更新model1的缓冲区数据，如果数据是浮点类型，则使用指数加权平均；
+    # 否则，直接使用model2的缓冲区数据更新model1
     for k in par1.keys():
         if par1[k].data.is_floating_point():
             par1[k].data.mul_(decay).add_(

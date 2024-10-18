@@ -14,25 +14,52 @@ os.environ["MKL_THREADING_LAYER"] = "GNU"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 def train(args):
+    """
+    训练模型的主函数。
+
+    根据指定的设备ID列表，决定是使用单个设备训练还是使用多个设备并行训练。
+
+    参数:
+    - args: 命令行参数或其他配置参数的集合，包含设备ID列表等信息。
+    """
+    # 获取设备ID列表
     device_ids = args.device_ids
+    # 计算设备数量
     nprocs = len(device_ids)
+
+    # 如果设备数量大于1，则使用torch.multiprocessing.spawn方法启动多个进程进行并行训练
     if nprocs > 1:
         torch.multiprocessing.spawn(
             train_worker, args=(nprocs, 1, args), nprocs=nprocs,
             join=True)
+    # 如果设备数量等于1，则直接调用train_worker函数进行训练
     elif nprocs == 1:
         train_worker(device_ids[0], nprocs, 1, args)
+    # 如果设备数量小于1，则抛出断言错误
     else:
         assert False
 
 
 def train_worker(world_rank, world_size, nodes_size, args):
-    # initialize config.
+    """
+    初始化训练工作进程的配置。
+
+    参数:
+    - world_rank: 当前进程的全局排名。
+    - world_size: 进程总数。
+    - nodes_size: 参与训练的节点数。
+    - args: 命令行参数或配置参数。
+    """
+    # 初始化配置。
     config = utility.get_config(args)
+    
+    # 根据全局排名和GPU设备数量分配设备ID。
     config.device_id = world_rank if nodes_size == 1 else world_rank % torch.cuda.device_count()
-    # set environment
+    # 设置环境，通过传递配置到 utility 函数
     utility.set_environment(config)
-    # initialize instances, such as writer, logger and wandb.
+
+    # 初始化重要实例，如 writer、logger 和 wandb
+    # 仅当当前进程的 rank 为 0 时执行初始化
     if world_rank == 0:
         config.init_instance()
 

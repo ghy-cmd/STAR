@@ -8,6 +8,7 @@ import numpy as np
 import gradio as gr
 from matplotlib import pyplot as plt
 import torch
+from tqdm import tqdm
 # private package
 from lib import utility
 
@@ -252,7 +253,6 @@ class Alignment:
             with torch.no_grad():
                 output = self.alignment(input_tensor)
             landmarks = output[-1][0]
-            print(landmarks)
         else:
             assert False
 
@@ -261,6 +261,14 @@ class Alignment:
         landmarks = self.postprocess(landmarks, np.linalg.inv(matrix)) #逆矩阵变换坐标
 
         return landmarks
+    
+    def crop_image(self, image, scale, center_w, center_h):
+        # 计算裁剪矩阵，用于后续的图像裁剪
+        matrix = self.getCropMatrix.process(scale, center_w, center_h)
+        # 应用裁剪矩阵，对原始图像进行裁剪和透视变换
+        input_tensor = self.transformPerspective.process(image, matrix)
+        return input_tensor,matrix
+        
 
 
 def draw_pts(img, pts, mode="pts", shift=4, color=(0, 255, 0), radius=1, thickness=1, save_path=None, dif=0,
@@ -326,21 +334,32 @@ def process(input_image):
             y = face.part(i).y
             shape.append((x, y))
         shape = np.array(shape)
-        # image_draw = draw_pts(image_draw, shape)
+        # image_draw = draw_pts(image_draw, shape, color = (255, 0, 0))
         x1, x2 = shape[:, 0].min(), shape[:, 0].max()
         y1, y2 = shape[:, 1].min(), shape[:, 1].max()
         scale = min(x2 - x1, y2 - y1) / 200 * 1.05 # scale ratio
         center_w = (x2 + x1) / 2
         center_h = (y2 + y1) / 2
-
         scale, center_w, center_h = float(scale), float(center_w), float(center_h)
         landmarks_pv = alignment.analyze(input_image, scale, center_w, center_h)
         results.append(landmarks_pv)
         image_draw = draw_pts(image_draw, landmarks_pv)
+        x1,x2=landmarks_pv[:,0].min(),landmarks_pv[:,0].max()
+        y1,y2=landmarks_pv[:,1].min(),landmarks_pv[:,1].max()
+        
+        # scale = min(x2 - x1, y2 - y1) / 200 * 1.05 # scale ratio
+        # center_w = landmarks_pv[54][0]
+        # center_h = landmarks_pv[54][1]
+        # image_draw,metric=alignment.crop_image(image_draw,scale,center_w,center_h)
     return image_draw, results
 
 
 if __name__ == '__main__':
+    # 设置 CUDA_VISIBLE_DEVICES 环境变量，使只有设备 7 可见
+    os.environ['CUDA_VISIBLE_DEVICES'] = '7'
+    # 检查当前设备
+    current_device = torch.cuda.current_device()
+    print(f"Current CUDA device: {current_device}")
     # face detector
     # could be downloaded in this repo: https://github.com/italojs/facial-landmarks-recognition/tree/master
     predictor_path = '/home/facial-landmarks-recognition/shape_predictor_68_face_landmarks.dat'
@@ -360,15 +379,30 @@ if __name__ == '__main__':
     # image:      input image
     # image_draw: draw the detected facial landmarks on image
     # results:    a list of detected facial landmarks
-    face_file_path = '/home/Data/rawpic/s15/15_0101disgustingteeth/img001.jpg'
-    image = cv2.imread(face_file_path)
-    image_draw, results = process(image)
+    folder_path = '/home/Data/rawpic/s15/15_0102eatingworms'
+    output_folder = '/home/Data/test/s15/15_0102eatingworms'
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    image_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(('.jpg', '.jpeg', '.png'))]
+    for face_file_path in tqdm(image_files,desc="Processing images"):
+        image = cv2.imread(face_file_path)
+        # 检查图片是否正确读取
+        if image is None:
+            print(f"Error: Unable to read image {face_file_path}")
+            continue
+        image_draw, results = process(image)
+        img = cv2.cvtColor(image_draw, cv2.COLOR_BGR2RGB)
+        output_oath=os.path.join(output_folder,os.path.basename(face_file_path))
+        cv2.imwrite(output_oath, img[:, :, ::-1])
+    # face_file_path = '/home/Data/rawpic/s15/15_0101disgustingteeth/img001.jpg'
+    # image = cv2.imread(face_file_path)
+    # image_draw, results = process(image)
 
     # visualize
-    img = cv2.cvtColor(image_draw, cv2.COLOR_BGR2RGB)
-    plt.imshow(img)
-    plt.show()
-    cv2.imwrite('output2.png', img[:, :, ::-1])  # 将 RGB 转回 BGR 格式再保存
+    # img = cv2.cvtColor(image_draw, cv2.COLOR_BGR2RGB)
+    # plt.imshow(img)
+    # plt.show()
+    # cv2.imwrite('output3.png', img[:, :, ::-1])  # 将 RGB 转回 BGR 格式再保存
     # demo
     # interface = gr.Interface(fn=process, inputs="image", outputs="image")
     # interface.launch(share=True)

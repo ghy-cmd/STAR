@@ -422,3 +422,8 @@ class StackedHGNetV1(nn.Module):
 
         # 返回所有阶段的输出、融合热力图和最终阶段的关键点坐标
         return y, fusionmaps, landmarks
+
+class StackedStackedHGNet(nn.Module):
+    def __init__(self):
+        super(StackedStackedHGNet, self).__init__()
+        
