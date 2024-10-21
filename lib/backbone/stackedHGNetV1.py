@@ -421,9 +421,48 @@ class StackedHGNetV1(nn.Module):
             fusionmaps.append(fusion_heatmaps)
 
         # 返回所有阶段的输出、融合热力图和最终阶段的关键点坐标
-        return y, fusionmaps, landmarks
+        # return y, fusionmaps, landmarks
+        return feature
 
-class StackedStackedHGNet(nn.Module):
-    def __init__(self):
-        super(StackedStackedHGNet, self).__init__()
+class Stacked3DHGNet(nn.Module):
+    def __init__(self,config, classes_num, edge_info,
+             nstack=4, nlevels=4, in_channel=256, increase=0,
+             add_coord=True, decoder_type='default', chunk_size=16):
+        super(Stacked3DHGNet, self).__init__()
+        self.stacked_hg_nets = nn.ModuleList([
+            StackedHGNetV1(config, classes_num, edge_info,
+                          nstack=nstack, nlevels=nlevels, in_channel=in_channel, increase=increase,
+                          add_coord=add_coord, decoder_type=decoder_type).load_state_dict(torch.load(f'/home/Data/WFLW_STARLoss_NME_4_02_FR_2_32_AUC_0_605.pkl'))
+            for _ in range(chunk_size)
+        ])
+        self.regression_head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(channels * height * width, 128),  # 假设 channels, height, width 是已知的
+            nn.ReLU(),
+            nn.Linear(128, 2)  # 输出维度为2，分别表示起始点和结束点
+        )
+        # 分类头
+        self.classification_head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(channels * height * width, 128),
+            nn.ReLU(),
+            nn.Linear(128, classes_num)  # 输出维度为类别数
+        )
+    
+    def forward(self, x):
+        # x 的维度为 (batch_size, chunk_size, channels, height, width)
+        batch_size, chunk_size, channels, height, width = x.size()
         
+        # 将 x 分解为 chunk_size 个 (batch_size, channels, height, width) 的张量
+        x_chunks = torch.unbind(x, dim=1)
+        
+        # 并联处理每个 chunk
+        outputs = [net(chunk) for net, chunk in zip(self.stacked_hg_nets, x_chunks)]
+        
+        # 将输出重新组合为 (batch_size, chunk_size, channels, height, width)
+        final_output = torch.stack(outputs, dim=1)
+        # 展平特征图并进行回归
+        flat_output = final_output.view(batch_size, chunk_size, -1)
+        regression_output = self.regression_head(flat_output)
+        
+        return regression_output

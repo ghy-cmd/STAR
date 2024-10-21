@@ -14,7 +14,7 @@ import torch.nn.functional as F
 # private package
 from conf import *
 from lib.dataset import AlignmentDataset
-from lib.backbone import StackedHGNetV1
+from lib.backbone import StackedHGNetV1,Stacked3DHGNet
 from lib.loss import *
 from lib.metric import NME, FR_AUC
 from lib.utils import convert_secs2time
@@ -147,6 +147,14 @@ def get_net(config):
         # In future (torch 2.0), we may wish to compile the model but this currently doesn't work
         #if int(torch_ver[0]) >= 2:
         #    net = torch.compile(net)
+    elif config.net == "stacked3DHGnet":
+        net = Stacked3DHGNet(config=config,
+                             classes_num=config.classes_num,
+                             edge_info=config.edge_info,
+                             nstack=config.nstack,
+                             add_coord=config.add_coord,
+                             decoder_type=config.decoder_type,
+                             chunk_size=config.chunk_size)
     else:
         assert False
     return net

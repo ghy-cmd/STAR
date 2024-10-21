@@ -2,10 +2,10 @@ import cv2
 import os
 
 # 图像帧文件夹路径
-frame_folder = '/home/Data/test/s15/15_0101disgustingteeth'
+frame_folder = '/home/Data/rawpic/s15/15_0101disgustingteeth'
 
 # 输出视频文件路径
-output_video_path = '/home/Data/output_video_nocrop.mp4'
+output_video_path = '/home/Data/output_video.mp4'
 
 # 获取文件夹中的所有图像文件路径
 frame_files = [os.path.join(frame_folder, f) for f in os.listdir(frame_folder) if f.endswith(('.jpg', '.jpeg', '.png'))]

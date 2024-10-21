@@ -60,42 +60,18 @@ def train_worker(world_rank, world_size, nodes_size, args):
 
     # 初始化重要实例，如 writer、logger 和 wandb
     # 仅当当前进程的 rank 为 0 时执行初始化
-    if world_rank == 0:
-        config.init_instance()
+    # if world_rank == 0:
+    config.init_instance()
 
     if config.logger is not None:
         config.logger.info("\n" + "\n".join(["%s: %s" % item for item in config.__dict__.items()]))
         config.logger.info("Loaded configure file %s: %s" % (config.type, config.id))
 
-    # worker communication
-    if world_size > 1:
-        torch.distributed.init_process_group(
-            backend="nccl", init_method="tcp://localhost:23456" if nodes_size == 1 else "env://",
-            rank=world_rank, world_size=world_size)
-        torch.cuda.set_device(config.device)
-
     # model
     net = utility.get_net(config)
-    if world_size > 1:
-        net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net)
     net = net.float().to(config.device)
     net.train(True)
-    if config.ema and world_rank == 0:
-        net_ema = utility.get_net(config)
-        if world_size > 1:
-            net_ema = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net_ema)
-        net_ema = net_ema.float().to(config.device)
-        net_ema.eval()
-        utility.accumulate_net(net_ema, net, 0)
-    else:
-        net_ema = None
-
-    # multi-GPU training
-    if world_size > 1:
-        net_module = nn.parallel.DistributedDataParallel(net, device_ids=[config.device_id],
-                                                         output_device=config.device_id, find_unused_parameters=True)
-    else:
-        net_module = net
+    net_module = net
 
     criterions = utility.get_criterions(config)
     optimizer = utility.get_optimizer(config, net_module)
@@ -130,8 +106,7 @@ def train_worker(world_rank, world_size, nodes_size, args):
 
     # data - train, val
     train_loader = utility.get_dataloader(config, "train", world_rank, world_size)
-    if world_rank == 0:
-        val_loader = utility.get_dataloader(config, "val")
+    val_loader = utility.get_dataloader(config, "val")
     if config.logger is not None:
         config.logger.info("Loaded data")
 

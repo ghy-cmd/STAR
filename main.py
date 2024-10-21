@@ -13,7 +13,7 @@ def add_base_options(parser):
     group = parser.add_argument_group("base")
     group.add_argument("--mode", type=str, default="train", help="train or test")
     group.add_argument("--config_name", type=str, default="alignment", help="set configure file name")
-    group.add_argument('--device_ids', type=str, default="0,1,2,3",
+    group.add_argument('--device_ids', type=str, default="7",
                        help="set device ids, -1 means use cpu device, >= 0 means use gpu device")
     group.add_argument('--data_definition', type=str, default='WFLW', help="COFW, 300W, WFLW")
     group.add_argument('--learn_rate', type=float, default=0.001, help='learning rate')
