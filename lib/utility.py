@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 # private package
 from conf import *
-from lib.dataset import AlignmentDataset
+from lib.dataset import AlignmentDataset,meDataset
 from lib.backbone import StackedHGNetV1,Stacked3DHGNet
 from lib.loss import *
 from lib.metric import NME, FR_AUC
@@ -53,6 +53,15 @@ def get_dataset(config, tsv_file, image_dir, loader_type, is_train):
             is_train,
             encoder_type=config.encoder_type
         )
+    elif loader_type == "CASME2":
+        dataset = meDataset(
+            width=config.width,
+            height=config.height,
+            channels=config.channels,
+            video_path=config.video_path,
+            detector=config.detector,
+            sp=config.sp,
+        )
     else:
         assert False
     return dataset
@@ -90,6 +99,16 @@ def get_dataloader(config, data_type, world_rank=0, world_size=1):
             config.test_pic_dir,
             config.loader_type,
             is_train=False)
+        loader = DataLoader(dataset, shuffle=False, batch_size=config.test_batch_size,
+                            num_workers=config.test_num_workers)
+    elif data_type == "extract_feature":
+        dataset = get_dataset(
+            config,
+            config.test_tsv_file,
+            config.test_pic_dir,
+            config.loader_type,
+            is_train=False
+        )
         loader = DataLoader(dataset, shuffle=False, batch_size=config.test_batch_size,
                             num_workers=config.test_num_workers)
     else:
@@ -147,14 +166,6 @@ def get_net(config):
         # In future (torch 2.0), we may wish to compile the model but this currently doesn't work
         #if int(torch_ver[0]) >= 2:
         #    net = torch.compile(net)
-    elif config.net == "stacked3DHGnet":
-        net = Stacked3DHGNet(config=config,
-                             classes_num=config.classes_num,
-                             edge_info=config.edge_info,
-                             nstack=config.nstack,
-                             add_coord=config.add_coord,
-                             decoder_type=config.decoder_type,
-                             chunk_size=config.chunk_size)
     else:
         assert False
     return net

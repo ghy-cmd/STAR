@@ -252,7 +252,7 @@ class Alignment:
         if self.dl_framework == "pytorch":
             with torch.no_grad():
                 output = self.alignment(input_tensor)
-            landmarks = output[-1][0]
+            landmarks = output[-2][0]
         else:
             assert False
 
@@ -353,7 +353,6 @@ def process(input_image):
         # image_draw,metric=alignment.crop_image(image_draw,scale,center_w,center_h)
     return image_draw, results
 
-
 if __name__ == '__main__':
     # 设置 CUDA_VISIBLE_DEVICES 环境变量，使只有设备 7 可见
     os.environ['CUDA_VISIBLE_DEVICES'] = '7'
@@ -372,7 +371,7 @@ if __name__ == '__main__':
     # args.data_definition = '300W'
     # could be downloaded here: https://drive.google.com/file/d/1aOx0wYEZUfBndYy_8IYszLPG_D2fhxrT/view
     model_path = '/home/Data/WFLW_STARLoss_NME_4_02_FR_2_32_AUC_0_605.pkl'
-    device_ids = '7'
+    device_ids = '0'
     device_ids = list(map(int, device_ids.split(",")))
     alignment = Alignment(args, model_path, dl_framework="pytorch", device_ids=device_ids)
 
@@ -383,7 +382,11 @@ if __name__ == '__main__':
     output_folder = '/home/Data/test/s15/15_0102eatingworms'
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
-    image_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(('.jpg', '.jpeg', '.png'))]
+    image_files = [f for f in os.listdir(folder_path) if f.endswith(('.jpg', '.jpeg', '.png'))]
+    image_files= [int(str(i).split('.')[0][3:]) for i in image_files]
+    image_files.sort()
+    image_files = ['img' + str(i).zfill(3) + '.jpg' for i in image_files]
+    image_files = [os.path.join(folder_path, i) for i in image_files]
     for face_file_path in tqdm(image_files,desc="Processing images"):
         image = cv2.imread(face_file_path)
         # 检查图片是否正确读取
@@ -394,15 +397,4 @@ if __name__ == '__main__':
         img = cv2.cvtColor(image_draw, cv2.COLOR_BGR2RGB)
         output_oath=os.path.join(output_folder,os.path.basename(face_file_path))
         cv2.imwrite(output_oath, img[:, :, ::-1])
-    # face_file_path = '/home/Data/rawpic/s15/15_0101disgustingteeth/img001.jpg'
-    # image = cv2.imread(face_file_path)
-    # image_draw, results = process(image)
 
-    # visualize
-    # img = cv2.cvtColor(image_draw, cv2.COLOR_BGR2RGB)
-    # plt.imshow(img)
-    # plt.show()
-    # cv2.imwrite('output3.png', img[:, :, ::-1])  # 将 RGB 转回 BGR 格式再保存
-    # demo
-    # interface = gr.Interface(fn=process, inputs="image", outputs="image")
-    # interface.launch(share=True)

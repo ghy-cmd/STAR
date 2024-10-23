@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from .core.coord_conv import CoordConvTh
 from lib.dataset import get_decoder
+import matplotlib.pyplot as plt
 
 
 
@@ -354,6 +355,10 @@ class StackedHGNetV1(nn.Module):
 
         # 推理标志
         self.inference = False
+        
+
+        #upsampling pool
+        self.upsample = nn.AvgPool3d(kernel_size=(8, 1, 1)) 
 
     def set_inference(self, inference):
         self.inference = inference
@@ -419,10 +424,36 @@ class StackedHGNetV1(nn.Module):
 
             # 将当前阶段的融合热力图添加到列表中
             fusionmaps.append(fusion_heatmaps)
+            
+        # # visualize_feature_maps
+        # # features_mean = feature.mean(dim=1).squeeze().cpu().numpy()  # (64, 64)
+        # # heatmap_mean = fusion_heatmaps.mean(dim=1).squeeze().cpu().numpy()    # (64, 64)
+        # # 对于特征图
+        # features_mean = torch.max(feature, dim=1).values.squeeze().cpu().numpy()  # (64, 64)
+        # # 对于热力图
+        # heatmap_mean = torch.max(fusion_heatmaps, dim=1).values.squeeze().cpu().numpy()    # (64, 64)
 
-        # 返回所有阶段的输出、融合热力图和最终阶段的关键点坐标
-        # return y, fusionmaps, landmarks
-        return feature
+        # # 创建可视化
+        # plt.figure(figsize=(10, 5))
+
+        # # 原始特征图
+        # plt.subplot(1, 2, 1)
+        # plt.imshow(features_mean, cmap='viridis')
+        # plt.title('Feature Map')
+        # plt.colorbar()
+
+        # # 融合热力图
+        # plt.subplot(1, 2, 2)
+        # plt.imshow(heatmap_mean, cmap='hot')
+        # plt.title('Heatmap')
+        # plt.colorbar()
+
+        # # 保存图片到本地
+        # plt.savefig('feature_map_and_heatmap.png')
+        # # 返回所有阶段的输出、融合热力图和最终阶段的关键点坐标
+        feature=self.upsample(feature)
+        return y, fusionmaps, landmarks, feature
+        # return feature
 
 class Stacked3DHGNet(nn.Module):
     def __init__(self,config, classes_num, edge_info,
@@ -435,19 +466,6 @@ class Stacked3DHGNet(nn.Module):
                           add_coord=add_coord, decoder_type=decoder_type).load_state_dict(torch.load(f'/home/Data/WFLW_STARLoss_NME_4_02_FR_2_32_AUC_0_605.pkl'))
             for _ in range(chunk_size)
         ])
-        self.regression_head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(channels * height * width, 128),  # 假设 channels, height, width 是已知的
-            nn.ReLU(),
-            nn.Linear(128, 2)  # 输出维度为2，分别表示起始点和结束点
-        )
-        # 分类头
-        self.classification_head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(channels * height * width, 128),
-            nn.ReLU(),
-            nn.Linear(128, classes_num)  # 输出维度为类别数
-        )
     
     def forward(self, x):
         # x 的维度为 (batch_size, chunk_size, channels, height, width)
@@ -458,11 +476,14 @@ class Stacked3DHGNet(nn.Module):
         
         # 并联处理每个 chunk
         outputs = [net(chunk) for net, chunk in zip(self.stacked_hg_nets, x_chunks)]
+
+        feature = outputs[-1]
         
         # 将输出重新组合为 (batch_size, chunk_size, channels, height, width)
-        final_output = torch.stack(outputs, dim=1)
+        feature = torch.stack(feature, dim=1)
+        feature = feature.mean(dim=1)
         # 展平特征图并进行回归
-        flat_output = final_output.view(batch_size, chunk_size, -1)
-        regression_output = self.regression_head(flat_output)
+        # flat_output = final_output.view(batch_size, chunk_size, -1)
+        # regression_output = self.regression_head(flat_output)
         
-        return regression_output
+        return feature

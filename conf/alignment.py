@@ -12,7 +12,7 @@ class Alignment(Base):
         self.ckpt_dir = '/apdcephfs_cq3/share_1134483/charlinzhou/ckpts/STAR/'
         self.net = "stackedHGnet_v1"
         self.nstack = 4
-        self.loader_type = "CASME2" # "CASME2","alignment"
+        self.loader_type = "alignment" # "CASME2","alignment"
         self.data_definition = "WFLW"  # COFW, 300W, WFLW
         self.test_file = "test.tsv"
         self.chunk_size = 16

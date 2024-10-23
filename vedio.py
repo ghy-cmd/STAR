@@ -2,19 +2,20 @@ import cv2
 import os
 
 # 图像帧文件夹路径
-frame_folder = '/home/Data/rawpic/s15/15_0101disgustingteeth'
+folder_path = '/home/Data/test/s15/15_0102eatingworms'
 
 # 输出视频文件路径
-output_video_path = '/home/Data/output_video.mp4'
+output_video_path = '/home/Data/output_video_landmark_align.mp4'
 
 # 获取文件夹中的所有图像文件路径
-frame_files = [os.path.join(frame_folder, f) for f in os.listdir(frame_folder) if f.endswith(('.jpg', '.jpeg', '.png'))]
-
-# 按文件名排序（假设文件名是按顺序命名的）
-frame_files.sort()
+image_files = [f for f in os.listdir(folder_path) if f.endswith(('.jpg', '.jpeg', '.png'))]
+image_files= [int(str(i).split('.')[0][3:]) for i in image_files]
+image_files.sort()
+image_files = ['img' + str(i).zfill(3) + '.jpg' for i in image_files]
+image_files = [os.path.join(folder_path, i) for i in image_files]
 
 # 读取第一帧以确定视频的宽度和高度
-first_frame = cv2.imread(frame_files[0])
+first_frame = cv2.imread(image_files[0])
 height, width, layers = first_frame.shape
 
 # 设置视频的帧率
@@ -25,7 +26,7 @@ fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # 视频编解码器
 video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
 
 # 遍历每个图像文件并写入视频
-for frame_file in frame_files:
+for frame_file in image_files:
     frame = cv2.imread(frame_file)
     video_writer.write(frame)
 
